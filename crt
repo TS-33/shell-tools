@@ -1,0 +1,129 @@
+#!/bin/bash
+set -e
+usage()
+{
+	echo 'Usage: crt <COMMAND> '
+	echo '  COMMAND:'
+	echo '    ca_init      #初始化CA服务器'
+	echo '    sign_by_ca   #由CA颁发证书'
+	echo '    self_sign    #自签证书'
+}
+
+
+CountryName="cn"					#国家
+StateOrProvinceName="sichuan"		#省份
+LocalityName="chengdu"				#城市
+OrganizationName="cuit"				#组织
+OrganizationalUnitName="wl231"		#单位
+CommonName="ca.thcsip.asia"			#域名
+EmailAddress="321950451@qq.com"		#邮箱
+
+
+self_sign()
+{
+    openssl genrsa -out ${key}.key &> /dev/null
+    openssl rsa -in ${key}.key -pubout -out ${key}.pub &> /dev/null
+    openssl req -new -x509 -key ${key}.key -days 36500 -out ${key}.crt <<EOF &> /dev/null
+    $CountryName
+    $StateOrProvinceName
+    $LocalityName
+    $OrganizationName
+    $OrganizationalUnitName
+    $CommonName
+    $EmailAddress
+EOF
+    
+    mkdir ${key} -p
+    mv ${key}.* ${key}
+    tar czf ${key}.tgz ${key}
+    rm ${key} -rf
+    echo ""
+    echo "证书 ${key} 生成完成"
+}
+
+
+ca_init()
+{
+	read -e -p "这会删除\"/etc/pki/CA\"下的所有数据，你确定吗?<y,N>: " user
+	if [[ ! $user == "y" ]];then
+		echo init cancel
+		exit 2
+	fi	
+	rm -rf /etc/pki/CA
+    mkdir -p /etc/pki/CA
+    mkdir -p /etc/pki/CA/{certs,crl,newcerts,private}
+    touch /etc/pki/CA/index.txt
+    openssl genrsa -out /etc/pki/CA/private/cakey.pem &> /dev/null
+    openssl req -new -x509 -key /etc/pki/CA/private/cakey.pem -days 36500 -out /etc/pki/CA/cacert.pem <<EOF &> /dev/null
+$CountryName
+$StateOrProvinceName
+$LocalityName
+$OrganizationName
+$OrganizationalUnitName
+$CommonName
+$EmailAddress
+EOF
+	echo 00 > /etc/pki/CA/serial
+	echo CA init OK!
+}
+
+sign_by_ca()
+{
+
+	if [[ ! -f /etc/pki/CA/private/cakey.pem ]];then
+	   echo 请先初始化CA服务
+	   exit 1
+	fi
+	
+	openssl genrsa -out ${key}.key 
+	openssl rsa -in ${key}.key -pubout -out ${key}.pub
+	openssl req -new -key ${key}.key -out ${key}.csr <<-EOF
+$CountryName
+$StateOrProvinceName
+$LocalityName
+$OrganizationName
+$OrganizationalUnitName
+$CommonName
+$EmailAddress
+
+
+EOF
+	openssl ca -in ${key}.csr -out /etc/pki/CA/certs/${key}.crt -days 100 <<EOF
+y
+y
+EOF
+	
+	cp /etc/pki/CA/certs/${key}.crt .
+	mkdir ${key} -p
+	mv ${key}.* ${key}
+	tar czf ${key}.tgz ${key}
+	rm ${key} -rf
+
+}
+
+
+
+main()
+{
+	case $1 in
+		self_sign)
+			read -p '证书名：' -e key
+			CommonName="${key}.thcsip.asia"
+			self_sign
+			;;
+		ca_init)
+			ca_init
+			;;
+		sign_by_ca)
+			read -p '证书名：' -e key
+			CommonName="${key}.thcsip.asia"
+			sign_by_ca
+			;;
+		*)
+			usage
+			exit 1
+			;;
+	esac
+}		
+
+main $1

@@ -75,9 +75,9 @@ sign_by_ca()
 	   exit 1
 	fi
 	
-	openssl genrsa -out ${key}.key 
-	openssl rsa -in ${key}.key -pubout -out ${key}.pub
-	openssl req -new -key ${key}.key -out ${key}.csr <<-EOF
+	openssl genrsa -out ${key}.key &> /dev/null
+	openssl rsa -in ${key}.key -pubout -out ${key}.pub &> /dev/null
+	openssl req -new -key ${key}.key -out ${key}.csr <<-EOF &> /dev/null
 $CountryName
 $StateOrProvinceName
 $LocalityName
@@ -88,17 +88,17 @@ $EmailAddress
 
 
 EOF
-	openssl ca -in ${key}.csr -out /etc/pki/CA/certs/${key}.crt -days 100 <<EOF
+	openssl ca -in ${key}.csr -out /etc/pki/CA/certs/${key}.crt -days 100 <<EOF &> /dev/null
 y
 y
 EOF
 	
-	cp /etc/pki/CA/certs/${key}.crt .
+	cp /etc/pki/CA/certs/${key}.crt . &> /dev/null
 	mkdir ${key} -p
-	mv ${key}.* ${key}
-	tar czf ${key}.tgz ${key}
+	mv ${key}.* ${key} &> /dev/null
+	tar czf ${key}.tgz ${key} &> /dev/null
 	rm ${key} -rf
-
+	echo "证书 ${key} 生成完成"
 }
 
 

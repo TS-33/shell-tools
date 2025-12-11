@@ -13,18 +13,19 @@ echo $usage
 echo 默认密码: $PASSWD
 echo
 
+if [[ ! -f ./Dockerfile ]];then
+	echo Didn\'t find a Dockerfile here!!
+	exit
+fi
+
 read -e -p "Input image's tag: " TAG
-read -e -p "Input target nodes(like node1 node2): " NODES
 
 if [[ -z $TAG ]];then
 	echo Input can\'t be NULL!!
 	exit
 fi
 
-if [[ ! -f Dockerfile ]];then
-	echo Didn\'t find a Dockerfile here!!
-	exit
-fi
+read -e -p "Input target nodes(like node1 node2): " NODES
 
 IMAGE_NAME=$(grep FROM Dockerfile | awk '{print $2}' | cut -d ':' -f 1)
 

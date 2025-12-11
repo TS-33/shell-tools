@@ -24,13 +24,13 @@ self_sign()
     openssl genrsa -out ${key}.key &> /dev/null
     openssl rsa -in ${key}.key -pubout -out ${key}.pub &> /dev/null
     openssl req -new -x509 -key ${key}.key -days 36500 -out ${key}.crt <<EOF &> /dev/null
-    $CountryName
-    $StateOrProvinceName
-    $LocalityName
-    $OrganizationName
-    $OrganizationalUnitName
-    $CommonName
-    $EmailAddress
+$CountryName
+$StateOrProvinceName
+$LocalityName
+$OrganizationName
+$OrganizationalUnitName
+$CommonName
+$EmailAddress
 EOF
     
     mkdir ${key} -p

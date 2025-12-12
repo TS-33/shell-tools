@@ -6,6 +6,7 @@ usage()
 	echo '  COMMAND:'
 	echo '    ca_init      #初始化CA服务器'
 	echo '    sign_by_ca   #由CA颁发证书'
+	echo '    sign_by_k8s  #由k8s apiserver颁发证书'
 	echo '    self_sign    #自签证书'
 }
 
@@ -21,6 +22,8 @@ EmailAddress="321950451@qq.com"		#邮箱
 
 self_sign()
 {
+	read -p '证书名：' -e key
+	CommonName="${key}.thcsip.asia"
     openssl genrsa -out ${key}.key &> /dev/null
     openssl rsa -in ${key}.key -pubout -out ${key}.pub &> /dev/null
     openssl req -new -x509 -key ${key}.key -days 36500 -out ${key}.crt <<EOF &> /dev/null
@@ -74,6 +77,8 @@ sign_by_ca()
 	   echo 请先初始化CA服务
 	   exit 1
 	fi
+	read -p '证书名：' -e key
+	CommonName="${key}.thcsip.asia"
 	
 	openssl genrsa -out ${key}.key &> /dev/null
 	openssl rsa -in ${key}.key -pubout -out ${key}.pub &> /dev/null
@@ -101,23 +106,62 @@ EOF
 	echo "证书 ${key} 生成完成"
 }
 
+sign_by_k8s()
+{
+	if [[ ! -f /etc/kubernetes/pki/ca.crt ]];then
+	   echo 未检测到k8s的CA服务
+	   exit 1
+	fi
+    CountryName=""
+    StateOrProvinceName=""
+    LocalityName=""
+    OrganizationName=""
+    OrganizationalUnitName=""
+    CommonName=""
+    EmailAddress=""
 
+    read -p '用户名：' -e key
+    CommonName=${key}
+	
+    read -p '组名：' -e OrganizationName
+
+	openssl genrsa -out ${key}.key &> /dev/null
+	openssl req -new -key ${key}.key -out ${key}.csr <<-EOF &> /dev/null
+$CountryName
+$StateOrProvinceName
+$LocalityName
+$OrganizationName
+$OrganizationalUnitName
+$CommonName
+$EmailAddress
+
+
+EOF
+	openssl x509 -req -days 3650 -CA /etc/kubernetes/pki/ca.crt -CAkey /etc/kubernetes/pki/ca.key -CAcreateserial -in ${key}.csr -out ${key}.crt <<EOF &> /dev/null
+
+
+EOF
+	mkdir ${key} -p
+	mv ${key}.* ${key} &> /dev/null
+	tar czf ${key}.tgz ${key} &> /dev/null
+	rm ${key} -rf
+	echo "证书 ${key} 生成完成"
+}
 
 main()
 {
 	case $1 in
 		self_sign)
-			read -p '证书名：' -e key
-			CommonName="${key}.thcsip.asia"
 			self_sign
 			;;
 		ca_init)
 			ca_init
 			;;
 		sign_by_ca)
-			read -p '证书名：' -e key
-			CommonName="${key}.thcsip.asia"
 			sign_by_ca
+			;;
+		sign_by_k8s)
+			sign_by_k8s
 			;;
 		*)
 			usage

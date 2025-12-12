@@ -67,6 +67,11 @@ contexts:
 current-context: ${Username}@${CN}
 EOF
 
+if [[ ! -f config ]];then
+	echo ERROR
+	exit
+fi
+
 mkdir ${Username} -p
 mv ${Username}.* config  ${Username} 
 tar czf ${Username}.tgz ${Username} 

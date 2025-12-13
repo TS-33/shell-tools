@@ -1,15 +1,5 @@
 #!/bin/bash
 set -e
-usage()
-{
-	echo 'Usage: crt <COMMAND> '
-	echo '  COMMAND:'
-	echo '    ca_init      #初始化CA服务器'
-	echo '    sign_by_ca   #由CA颁发证书'
-	echo '    sign_by_k8s  #由k8s apiserver颁发证书'
-	echo '    self_sign    #自签证书'
-}
-
 
 CountryName="cn"					#国家
 StateOrProvinceName="sichuan"		#省份
@@ -19,6 +9,16 @@ OrganizationalUnitName="wl231"		#单位
 CommonName="ca.thcsip.asia"			#域名
 EmailAddress="321950451@qq.com"		#邮箱
 
+
+usage()
+{
+	echo 'Usage: crt <COMMAND> '
+	echo '  COMMAND:'
+	echo '    ca_init      #初始化CA服务器'
+	echo '    sign_by_ca   #由CA颁发证书'
+	echo '    sign_by_k8s  #由k8s apiserver颁发证书'
+	echo '    self_sign    #自签证书'
+}
 
 self_sign()
 {
@@ -123,28 +123,18 @@ sign_by_k8s()
     read -p '用户名：' -e key
     CommonName=${key}
 	
-    read -p '组名：' -e OrganizationName
+    #read -p '组名：' -e OrganizationName
 
 	openssl genrsa -out ${key}.key 
-	openssl req -new -key ${key}.key -out ${key}.csr <<-EOF 
-$CountryName
-$StateOrProvinceName
-$LocalityName
-$OrganizationName
-$OrganizationalUnitName
-$CommonName
-$EmailAddress
-
-
-EOF
+	openssl req -new -key "${key}.key" -out "${key}.csr" -subj "/CN=${key}/O=${OrganizationName}"
 	openssl x509 -req -days 3650 -CA /etc/kubernetes/pki/ca.crt -CAkey /etc/kubernetes/pki/ca.key -CAcreateserial -in ${key}.csr -out ${key}.crt <<EOF 
-
-
+y
+y
 EOF
 	mkdir ${key} -p
 	mv ${key}.* ${key} 
-	tar czf ${key}.tgz ${key} 
-	rm ${key} -rf
+	#tar czf ${key}.tgz ${key} 
+	#rm ${key} -rf
 	echo "证书 ${key} 生成完成"
 }
 

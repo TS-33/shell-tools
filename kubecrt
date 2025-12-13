@@ -1,81 +1,166 @@
 #!/bin/bash
 set -e
 
-if [[ ! -f /etc/kubernetes/pki/ca.key ]];then
-	echo kubernetes CA 服务不存在!!
-	exit
-fi
-which openssl
-if [[ ! $? -eq 0 ]];then
-    echo openssl不存在!!
-    exit
-fi
+# --- 函数：生成 ClusterRole YAML ---
+create_clusterrole_file() {
+    # 如果 Username 还没在全局定义，则在此获取
+    [[ -z "$Username" ]] && read -p "请输入用户名(如 joy): " -e Username
+    read -p "请输入 apiGroups(如 \"\",apps): " -e apiGroupsInput
+    read -p "请输入 resources (如 pods,deployments): " -e resourcesInput
+    read -p "请输入 verbs(如 get,list,watch): " -e verbsInput
 
-#初始化openssl subj参数
-Issuer=$(openssl x509 -in /etc/kubernetes/pki/ca.crt -noout -text | grep Issuer:)
-. <(echo ${Issuer// /} | awk -F: '{print $2}' | tr ',' '\n')
+    # 格式化 apiGroups
+    IFS=',' read -r -a groupsArray <<< "$apiGroupsInput"
+    apiGroupsItems=()
+    for group in "${groupsArray[@]}"; do
+        group=$(echo "$group" | xargs)
+        if [[ -z "$group" || "$group" == '""' || "$group" == "''" ]]; then
+            apiGroupsItems+=("\"\"")
+        else
+            clean_group=$(echo "$group" | sed 's/"//g; s/'\''//g')
+            apiGroupsItems+=("\"$clean_group\"")
+        fi
+    done
+    apiGroupsString=$(printf ", %s" "${apiGroupsItems[@]}")
+    apiGroupsString="[ ${apiGroupsString:2} ]"
 
+    # 格式化 resources
+    IFS=',' read -r -a resArray <<< "$resourcesInput"
+    resItems=()
+    for res in "${resArray[@]}"; do
+        res=$(echo "$res" | xargs | sed "s/\"//g; s/'//g")
+        [[ -n "$res" ]] && resItems+=("\"$res\"")
+    done
+    resourcesString=$(printf ", %s" "${resItems[@]}")
+    resourcesString="[ ${resourcesString:2} ]"
 
-read -p '用户名：' -e Username
+    # 格式化 verbs
+    IFS=',' read -r -a verbsArray <<< "$verbsInput"
+    verbItems=()
+    for v in "${verbsArray[@]}"; do
+        v=$(echo "$v" | xargs | sed "s/\"//g; s/'//g")
+        [[ -n "$v" ]] && verbItems+=("\"$v\"")
+    done
+    verbsString=$(printf ", %s" "${verbItems[@]}")
+    verbsString="[ ${verbsString:2} ]"
 
-read -p '组名：' -e O
-
-read -p 'apiServer地址：' -e SERVERIP
-if [[ $SERVERIP == "" ]];then
-	SERVERIP="https://192.168.36.160:6443"
-	echo $SERVERIP
-fi
-
-echo $SERVERIP
-
-openssl genrsa -out ${Username}.key 
-openssl req -new -key ${Username}.key -out ${Username}.csr <<-EOF 
-$C
-$ST
-$L
-$O
-$OU
-$Username
-$emailAddress
-
-
+    cat > "${Username}/clusterrole.yaml" <<EOF
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: ${Username}-role
+rules:
+- apiGroups: ${apiGroupsString}
+  resources: ${resourcesString}
+  verbs: ${verbsString}
 EOF
-openssl x509 -req -days 3650 -CA /etc/kubernetes/pki/ca.crt -CAkey /etc/kubernetes/pki/ca.key -CAcreateserial -in ${Username}.csr -out ${Username}.crt <<EOF 
+    echo "已生成 clusterrole.yaml"
+}
 
+# --- 检查依赖 ---
+if ! command -v crt &> /dev/null; then
+    echo "未找到 crt 命令，请确认是否运行了 ./install.sh"
+    exit 1
+fi
 
-EOF 
+# --- 获取 API Server 信息 ---
+# 提取 IP 和 端口，并添加 https:// 前缀和冒号
+apiIP=$(ps -ef | grep 'kube-apiserver' | grep -- '--advertise-address=' | awk -F'--advertise-address=' '{print $2}' | awk '{print $1}')
+apiPort=$(ps -ef | grep 'kube-apiserver' | grep -oP -- '--secure-port=\K[0-9]+')
+SERVERIP="https://${apiIP}:${apiPort}"
 
-cat > config <<EOF
+# 获取 CA 信息中的 CN (Common Name) 作为集群名
+Issuer=$(openssl x509 -in /etc/kubernetes/pki/ca.crt -noout -text | grep 'Subject:' || openssl x509 -in /etc/kubernetes/pki/ca.crt -noout -subject)
+CN=$(echo "$Issuer" | sed -n 's/.*CN[ ]*=[ ]*\([^,]*\).*/\1/p' | head -n1 | xargs)
+
+# --- 1. 证书签发 ---
+read -p "请输入要签发的用户: " -e Username
+if [[ -z "$Username" ]]; then echo "用户名不能为空"; exit 1; fi
+
+# 调用 crt 工具签发证书
+crt sign_by_k8s <<EOF
+$Username
+EOF
+
+# --- 2. 生成 Kubeconfig ---
+mkdir -p "${Username}"
+cat > "${Username}/config" <<EOF
 ---
 apiVersion: v1
 kind: Config
 clusters:
-- name: $CN
+- name: kubernetes
   cluster:
-    certificate-authority-data: `cat /etc/kubernetes/pki/ca.crt | base64`
+    certificate-authority-data: $(cat /etc/kubernetes/pki/ca.crt | base64 -w 0)
     server: $SERVERIP
 users:
 - name: $Username
   user:
-    client-certificate-data: `cat ${Username}.crt | base64`
-    client-key-data: `cat ${Username}.key | base64`
+    client-certificate-data: $(cat ${Username}/${Username}.crt | base64 -w 0)
+    client-key-data: $(cat ${Username}/${Username}.key | base64 -w 0)
 contexts:
-- name: ${Username}@${CN}
+- name: ${Username}@kubernetes
   context:
-    cluster: $CN
+    cluster: kubernetes
     user: $Username
-current-context: ${Username}@${CN}
+current-context: ${Username}@kubernetes
 EOF
 
-if [[ ! -f config ]];then
-	echo ERROR
-	exit
+echo "Kubeconfig 已生成在: ${Username}/config"
+
+# --- 3. 权限绑定逻辑 ---
+while true; do
+    read -p "请输入绑定类型 (ClusterRoleBinding 或 RoleBinding): " -e bindtype
+    normalized_bindtype=$(echo "$bindtype" | tr '[:upper:]' '[:lower:]')
+    if [[ "$normalized_bindtype" == "clusterrolebinding" || "$normalized_bindtype" == "rolebinding" ]]; then
+        break
+    else
+        echo "无效类型，只能是 ClusterRoleBinding 或 RoleBinding。"
+    fi
+done
+
+# 生成 RBAC 文件
+if [[ "$normalized_bindtype" == "clusterrolebinding" ]]; then
+    create_clusterrole_file
+    cat > "${Username}/clusterRoleBinding.yaml" <<EOF
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: ${Username}-global-binding
+subjects:
+- kind: User
+  name: $Username
+  apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: ${Username}-role
+  apiGroup: rbac.authorization.k8s.io
+EOF
+    echo "已生成 clusterRoleBinding.yaml"
+    echo "提示: 请执行 'kubectl apply -f ${Username}/clusterrole.yaml -f ${Username}/clusterRoleBinding.yaml' 来应用权限。"
+
+else
+    # RoleBinding 逻辑
+    read -p "请输入 RoleBinding 所属的 Namespace: " -e NS
+    create_clusterrole_file
+    cat > "${Username}/roleBinding.yaml" <<EOF
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ${Username}-ns-binding
+  namespace: ${NS}
+subjects:
+- kind: User
+  name: $Username
+  apiGroup: rbac.authorization.k8s.io
+roleRef:
+  kind: ClusterRole
+  name: ${Username}-role
+  apiGroup: rbac.authorization.k8s.io
+EOF
+    echo "已生成 roleBinding.yaml (Namespace: $NS)"
+    echo "提示: 请执行 'kubectl apply -f ${Username}/clusterrole.yaml -f ${Username}/roleBinding.yaml' 来应用权限。"
 fi
-
-mkdir ${Username} -p
-mv ${Username}.* config  ${Username} 
-tar czf ${Username}.tgz ${Username} 
-rm ${Username} -rf
-echo "证书 ${Username} 生成完成"
-
-

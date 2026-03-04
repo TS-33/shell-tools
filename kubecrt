@@ -1,4 +1,7 @@
 #!/bin/bash
+## k8s 添加user account, 生成kubeconfig文件.
+
+
 set -e
 
 # --- 函数：生成 ClusterRole YAML ---

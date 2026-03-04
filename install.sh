@@ -1,4 +1,5 @@
 #!/bin/bash
+## install all scripts to /usr/bin
 
 for i in *
 do

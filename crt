@@ -1,4 +1,6 @@
 #!/bin/bash
+##部署私有CA服务器
+
 set -e
 
 CountryName="cn"					#国家
